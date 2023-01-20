@@ -21,7 +21,7 @@ describe("QRNFT Contract", function () {
     await erc721.mint(owner.address, 2);
 
     const Dropper721 = await ethers.getContractFactory("QRNFT");
-    const dropper721 = await Dropper721.deploy(owner.address, "www.test.com");
+    const dropper721 = await Dropper721.deploy(owner.address);
     await dropper721.deployed();
 
     return { erc721, erc1155, dropper721, owner, addr1, addr2 };
@@ -49,6 +49,14 @@ describe("QRNFT Contract", function () {
 
   it("Should allow the signer to claim a token from the contract", async () => {
     const { erc721, dropper721, owner, addr1 } = await loadFixture(fixture);
+
+    // sign an ECDSA ethereum message 'hello world'.  Make sure the message is the right length
+    const message = ethers.utils.toUtf8Bytes("hello world");
+    const messageHash = ethers.utils.keccak256(message);
+    const signature = await owner.signMessage(
+      ethers.utils.arrayify(messageHash)
+    );
+
     await erc721
       .connect(owner)
       ["safeTransferFrom(address,address,uint256)"](
@@ -64,8 +72,39 @@ describe("QRNFT Contract", function () {
         1
       );
 
-    await dropper721.claim(addr1.address, 0);
+    await dropper721.connect(addr1).claim(0, messageHash, signature);
     expect(await erc721.ownerOf(0)).to.equal(addr1.address);
+  });
+
+  it("Should not allow someone to claim the same token twice.", async () => {
+    const { erc721, dropper721, owner, addr1 } = await loadFixture(fixture);
+
+    // sign an ECDSA ethereum message 'hello world'.  Make sure the message is the right length
+    const message = ethers.utils.toUtf8Bytes("hello world");
+    const messageHash = ethers.utils.keccak256(message);
+    const signature = await owner.signMessage(
+      ethers.utils.arrayify(messageHash)
+    );
+
+    await erc721
+      .connect(owner)
+      ["safeTransferFrom(address,address,uint256)"](
+        owner.address,
+        dropper721.address,
+        0
+      );
+    await erc721
+      .connect(owner)
+      ["safeTransferFrom(address,address,uint256)"](
+        owner.address,
+        dropper721.address,
+        1
+      );
+
+    await dropper721.connect(addr1).claim(0, messageHash, signature);
+    await expect(
+      dropper721.connect(addr1).claim(0, messageHash, signature)
+    ).to.be.revertedWith("Already claimed");
   });
 
   it("Should be able to return all NFTs held in the contract to their proper owner.", async () => {

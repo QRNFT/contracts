@@ -8,7 +8,14 @@ pragma solidity ^0.8.9;
 (: (____/ //  //      / |.  \    \. | // ___)      |.  |     
  \         \ |:  __   \ |    \    \ |(:  (         \:  |     
   \"____/\__\|__|  \___) \___|\____\) \__/          \__|     
-*/
+
+
+ ██▄▄▄██   █▄▀ █░█ █▀▄▀█ ▄▀█
+█   ░   █  █░█ █▄█ █░▀░█ █▀█
+█   ░   █
+█░█░▀░█░█  ▀█▀ █▀█ █▀█ █▄░█   █▀▀ ▀█▀ █░█
+ ▀▀▀▀▀▀▀   ░█░ █▀▄ █▄█ █░▀█ ▄ ██▄ ░█░ █▀█
+ */
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -16,9 +23,10 @@ import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/utils/Base64.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import "hardhat/console.sol";
 
 contract QRNFT is
     IERC721Receiver,
@@ -28,12 +36,12 @@ contract QRNFT is
     AccessControl
 {
     using Strings for uint256;
+    using SignatureChecker for address;
 
-    uint256 private count;
-    string public baseURI;
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    uint256 public count;
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant PARTNER_ROLE = keccak256("PARTNER_ROLE");
+    address public signer;
 
     struct Drop {
         address tokenAddress;
@@ -49,8 +57,7 @@ contract QRNFT is
         uint256 indexed tokenId,
         address operator,
         address indexed nftContract,
-        uint256 amount,
-        string indexed url
+        uint256 amount
     );
 
     event Claimed(
@@ -69,13 +76,11 @@ contract QRNFT is
 
     mapping(uint256 => Drop) public drops;
 
-    constructor(address _minter, string memory _baseURI) {
+    constructor(address _signer) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
         _grantRole(PARTNER_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, _minter);
-        baseURI = _baseURI;
+        signer = _signer;
     }
 
     function onERC721Received(
@@ -84,6 +89,7 @@ contract QRNFT is
         uint256 _tokenId,
         bytes calldata
     ) external returns (bytes4) {
+        require(hasRole(PARTNER_ROLE, _from), "QRNFT: Not a partner.");
         drops[count] = Drop(
             msg.sender,
             _tokenId,
@@ -93,7 +99,7 @@ contract QRNFT is
             false,
             "ERC721"
         );
-        emit ClaimCreated(_tokenId, _from, msg.sender, 1, buildLink(count));
+        emit ClaimCreated(_tokenId, _from, msg.sender, 1);
         count++;
         return this.onERC721Received.selector;
     }
@@ -104,7 +110,8 @@ contract QRNFT is
         uint256 _tokenId,
         uint256 _amount,
         bytes calldata
-    ) external onlyRole(PARTNER_ROLE) returns (bytes4) {
+    ) external returns (bytes4) {
+        require(hasRole(PARTNER_ROLE, _from), "QRNFT: Not a partner.");
         drops[count] = Drop(
             msg.sender,
             _tokenId,
@@ -114,13 +121,7 @@ contract QRNFT is
             false,
             "ERC1155"
         );
-        emit ClaimCreated(
-            _tokenId,
-            _from,
-            msg.sender,
-            _amount,
-            buildLink(count)
-        );
+        emit ClaimCreated(_tokenId, _from, msg.sender, _amount);
         count++;
         return this.onERC1155Received.selector;
     }
@@ -130,7 +131,8 @@ contract QRNFT is
         address _from,
         uint256[] calldata _tokenIds,
         bytes calldata
-    ) external onlyRole(PARTNER_ROLE) returns (bytes4) {
+    ) external returns (bytes4) {
+        require(hasRole(PARTNER_ROLE, _from), "QRNFT: Not a partner.");
         for (uint256 i = 0; i < _tokenIds.length; i++) {
             drops[count] = Drop(
                 msg.sender,
@@ -143,7 +145,7 @@ contract QRNFT is
             );
             count++;
         }
-        emit ClaimCreated(_tokenIds[0], _from, msg.sender, 1, buildLink(count));
+        emit ClaimCreated(_tokenIds[0], _from, msg.sender, 1);
         return this.onERC721BatchReceived.selector;
     }
 
@@ -153,7 +155,8 @@ contract QRNFT is
         uint256[] calldata _tokenIds,
         uint256[] calldata _amounts,
         bytes calldata
-    ) external onlyRole(PARTNER_ROLE) returns (bytes4) {
+    ) external returns (bytes4) {
+        require(hasRole(PARTNER_ROLE, _from), "QRNFT: Not a partner.");
         for (uint256 i = 0; i < _tokenIds.length; i++) {
             drops[count] = Drop(
                 msg.sender,
@@ -166,31 +169,45 @@ contract QRNFT is
             );
             count++;
         }
-        emit ClaimCreated(
-            _tokenIds[0],
-            _from,
-            msg.sender,
-            _amounts[0],
-            buildLink(count)
-        );
+        emit ClaimCreated(_tokenIds[0], _from, msg.sender, _amounts[0]);
         return this.onERC1155BatchReceived.selector;
     }
 
     /**
+     *@dev Get information about a specific drop.
+     *@param _dropId The token id of the drop
+     *@return Drop information
+     */
+    function getDrop(uint256 _dropId) external view returns (Drop memory) {
+        return drops[_dropId];
+    }
+
+    /**
      * @dev Claim a drop
-     * @param _owner The token id of the drop
      * @param _dropId The token id of the drop
      */
-    function claim(address _owner, uint256 _dropId)
-        external
-        whenNotPaused
-        onlyRole(MINTER_ROLE)
-    {
-        require(drops[_dropId].operator != address(0), "Drop does not exist");
-        require(drops[_dropId].owner == address(0), "Already claimed");
-        require(drops[_dropId].claimed == false, "Already claimed");
+    function claim(
+        uint256 _dropId,
+        bytes32 _hash,
+        bytes memory _signature
+    ) external whenNotPaused {
+        require(
+            drops[_dropId].operator != address(0),
+            "QRNFT: Drop does not exist"
+        );
+        require(drops[_dropId].owner == address(0), "QRNFT: Already claimed");
+        require(drops[_dropId].claimed == false, "QRNFT: Already claimed");
 
-        drops[_dropId].owner = _owner;
+        bytes32 messageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", _hash)
+        );
+
+        require(
+            signer.isValidSignatureNow(messageHash, _signature),
+            "Invalid signature"
+        );
+
+        drops[_dropId].owner = msg.sender;
         drops[_dropId].claimed = true;
 
         if (
@@ -199,13 +216,13 @@ contract QRNFT is
         ) {
             IERC721(drops[_dropId].tokenAddress).safeTransferFrom(
                 address(this),
-                _owner,
+                msg.sender,
                 drops[_dropId].tokenId
             );
         } else {
             IERC1155(drops[_dropId].tokenAddress).safeTransferFrom(
                 address(this),
-                _owner,
+                msg.sender,
                 drops[_dropId].tokenId,
                 drops[_dropId].amount,
                 ""
@@ -214,7 +231,7 @@ contract QRNFT is
 
         emit Claimed(
             drops[_dropId].tokenId,
-            _owner,
+            msg.sender,
             drops[_dropId].tokenAddress,
             drops[_dropId].amount
         );
@@ -289,22 +306,6 @@ contract QRNFT is
     }
 
     /**
-     * @dev Build a link to the drop
-     */
-    function buildLink(uint256 _dropId) internal view returns (string memory) {
-        string memory link = string(
-            abi.encodePacked(
-                baseURI,
-                Base64.encode(
-                    abi.encodePacked('{"dropId":', _dropId.toString(), "}")
-                )
-            )
-        );
-
-        return link;
-    }
-
-    /**
      * @dev Pause the contract
      */
     function pause() external onlyRole(ADMIN_ROLE) {
@@ -316,13 +317,6 @@ contract QRNFT is
      */
     function unpause() external onlyRole(ADMIN_ROLE) {
         _unpause();
-    }
-
-    /**
-     * @dev Set the base URI
-     */
-    function setBaseURI(string memory _baseURI) external onlyRole(ADMIN_ROLE) {
-        baseURI = _baseURI;
     }
 
     /**
@@ -373,30 +367,6 @@ contract QRNFT is
         }
     }
 
-    /**
-     * @dev Set the minter role
-     */
-    function setMinter(address[] memory _minter)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        for (uint256 i = 0; i < _minter.length; i++) {
-            grantRole(MINTER_ROLE, _minter[i]);
-        }
-    }
-
-    /**
-     * @dev Revoke a minter role
-     */
-    function revokeMinter(address[] memory _minter)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        for (uint256 i = 0; i < _minter.length; i++) {
-            revokeRole(MINTER_ROLE, _minter[i]);
-        }
-    }
-
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -407,11 +377,3 @@ contract QRNFT is
         return super.supportsInterface(interfaceId);
     }
 }
-
-/*
- ██▄▄▄██   █▄▀ █░█ █▀▄▀█ ▄▀█
-█   ░   █  █░█ █▄█ █░▀░█ █▀█
-█   ░   █
-█░█░▀░█░█  ▀█▀ █▀█ █▀█ █▄░█   █▀▀ ▀█▀ █░█
- ▀▀▀▀▀▀▀   ░█░ █▀▄ █▄█ █░▀█ ▄ ██▄ ░█░ █▀█
- */
