@@ -21,6 +21,10 @@ const config: HardhatUserConfig = {
       url: `https://eth-goerli.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
       accounts: [PRIVATE_KEY || ""],
     },
+    mumbai: {
+      url: `https://polygon-mumbai.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
+      accounts: [PRIVATE_KEY || ""],
+    },
   },
   etherscan: {
     apiKey: ETHERSCAN_API_KEY,

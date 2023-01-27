@@ -10,7 +10,8 @@ async function main() {
   const Token = await ethers.getContractFactory("QRNFT");
   const token = await Token.deploy(
     "0x0f78BF8aBc5F4B23EF93996540F6A452244FF940",
-    "www.example.com/"
+    "0x0f78BF8aBc5F4B23EF93996540F6A452244FF940",
+    "0x69015912AA33720b842dCD6aC059Ed623F28d9f7"
   );
 
   await token.deployed();

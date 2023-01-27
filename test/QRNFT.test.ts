@@ -21,7 +21,11 @@ describe("QRNFT Contract", function () {
     await erc721.mint(owner.address, 2);
 
     const Dropper721 = await ethers.getContractFactory("QRNFT");
-    const dropper721 = await Dropper721.deploy(owner.address);
+    const dropper721 = await Dropper721.deploy(
+      owner.address,
+      owner.address,
+      owner.address
+    );
     await dropper721.deployed();
 
     return { erc721, erc1155, dropper721, owner, addr1, addr2 };
@@ -104,7 +108,7 @@ describe("QRNFT Contract", function () {
     await dropper721.connect(addr1).claim(0, messageHash, signature);
     await expect(
       dropper721.connect(addr1).claim(0, messageHash, signature)
-    ).to.be.revertedWith("Already claimed");
+    ).to.be.revertedWith("QRNFT: Already claimed");
   });
 
   it("Should be able to return all NFTs held in the contract to their proper owner.", async () => {

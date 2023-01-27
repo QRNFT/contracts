@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^1.0.4",
+    "@opengsn/contracts": "^3.0.0-beta.1",
     "@openzeppelin/contracts": "^4.7.3",
     "dotenv": "^16.0.3",
     "eth-crypto": "^2.4.0"

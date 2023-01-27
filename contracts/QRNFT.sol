@@ -9,12 +9,6 @@ pragma solidity ^0.8.9;
  \         \ |:  __   \ |    \    \ |(:  (         \:  |     
   \"____/\__\|__|  \___) \___|\____\) \__/          \__|     
 
-
- ██▄▄▄██   █▄▀ █░█ █▀▄▀█ ▄▀█
-█   ░   █  █░█ █▄█ █░▀░█ █▀█
-█   ░   █
-█░█░▀░█░█  ▀█▀ █▀█ █▀█ █▄░█   █▀▀ ▀█▀ █░█
- ▀▀▀▀▀▀▀   ░█░ █▀▄ █▄█ █░▀█ ▄ ██▄ ░█░ █▀█
  */
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
@@ -26,6 +20,8 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import "@opengsn/contracts/src/ERC2771Recipient.sol";
+
 import "hardhat/console.sol";
 
 contract QRNFT is
@@ -33,7 +29,8 @@ contract QRNFT is
     IERC1155Receiver,
     Pausable,
     ERC165,
-    AccessControl
+    AccessControl,
+    ERC2771Recipient
 {
     using Strings for uint256;
     using SignatureChecker for address;
@@ -42,6 +39,8 @@ contract QRNFT is
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant PARTNER_ROLE = keccak256("PARTNER_ROLE");
     address public signer;
+    string public name = "QRNFT";
+    string public symbol = "QRNFT";
 
     struct Drop {
         address tokenAddress;
@@ -64,7 +63,7 @@ contract QRNFT is
         uint256 indexed tokenId,
         address indexed owner,
         address indexed nftContract,
-        uint256 amount
+        uint256
     );
 
     event ClaimRefunded(
@@ -76,10 +75,35 @@ contract QRNFT is
 
     mapping(uint256 => Drop) public drops;
 
-    constructor(address _signer) {
+    constructor(
+        address _owner,
+        address _signer,
+        address _trustedForwarder
+    ) {
+        _setTrustedForwarder(_trustedForwarder);
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _owner);
         _grantRole(ADMIN_ROLE, msg.sender);
         _grantRole(PARTNER_ROLE, msg.sender);
+        signer = _signer;
+    }
+
+    /**
+     * @dev Set the trusted forwarder for a contract.
+     * @param forwarder The address of the TrustedForwarder contract.
+     */
+    function setTrustedForwarder(address forwarder)
+        public
+        onlyRole(ADMIN_ROLE)
+    {
+        _setTrustedForwarder(forwarder);
+    }
+
+    /**
+     * @dev Set the signer for a contract.
+     * @param _signer The address of the signer.
+     */
+    function setSigner(address _signer) public onlyRole(DEFAULT_ADMIN_ROLE) {
         signer = _signer;
     }
 
@@ -144,8 +168,8 @@ contract QRNFT is
                 "ERC721"
             );
             count++;
+            emit ClaimCreated(_tokenIds[i], _from, msg.sender, 1);
         }
-        emit ClaimCreated(_tokenIds[0], _from, msg.sender, 1);
         return this.onERC721BatchReceived.selector;
     }
 
@@ -158,18 +182,20 @@ contract QRNFT is
     ) external returns (bytes4) {
         require(hasRole(PARTNER_ROLE, _from), "QRNFT: Not a partner.");
         for (uint256 i = 0; i < _tokenIds.length; i++) {
-            drops[count] = Drop(
-                msg.sender,
-                _tokenIds[i],
-                _amounts[i],
-                address(0),
-                _from,
-                false,
-                "ERC1155"
-            );
-            count++;
+            for (uint256 j = 0; j < _amounts[i]; j++) {
+                drops[count] = Drop(
+                    msg.sender,
+                    _tokenIds[i],
+                    _amounts[i],
+                    address(0),
+                    _from,
+                    false,
+                    "ERC1155"
+                );
+                count++;
+                emit ClaimCreated(_tokenIds[i], _from, msg.sender, 1);
+            }
         }
-        emit ClaimCreated(_tokenIds[0], _from, msg.sender, _amounts[0]);
         return this.onERC1155BatchReceived.selector;
     }
 
@@ -207,7 +233,7 @@ contract QRNFT is
             "Invalid signature"
         );
 
-        drops[_dropId].owner = msg.sender;
+        drops[_dropId].owner = _msgSender();
         drops[_dropId].claimed = true;
 
         if (
@@ -216,22 +242,22 @@ contract QRNFT is
         ) {
             IERC721(drops[_dropId].tokenAddress).safeTransferFrom(
                 address(this),
-                msg.sender,
+                _msgSender(),
                 drops[_dropId].tokenId
             );
         } else {
             IERC1155(drops[_dropId].tokenAddress).safeTransferFrom(
                 address(this),
-                msg.sender,
+                _msgSender(),
                 drops[_dropId].tokenId,
                 drops[_dropId].amount,
-                ""
+                _msgData()
             );
         }
 
         emit Claimed(
             drops[_dropId].tokenId,
-            msg.sender,
+            _msgSender(),
             drops[_dropId].tokenAddress,
             drops[_dropId].amount
         );
@@ -367,6 +393,28 @@ contract QRNFT is
         }
     }
 
+    // override _msgsende()
+    function _msgSender()
+        internal
+        view
+        virtual
+        override(Context, ERC2771Recipient)
+        returns (address)
+    {
+        return ERC2771Recipient._msgSender();
+    }
+
+    // override _msgdata()
+    function _msgData()
+        internal
+        view
+        virtual
+        override(Context, ERC2771Recipient)
+        returns (bytes calldata)
+    {
+        return ERC2771Recipient._msgData();
+    }
+
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -376,4 +424,16 @@ contract QRNFT is
     {
         return super.supportsInterface(interfaceId);
     }
+
+    function versionRecipient() external pure returns (string memory) {
+        return "1";
+    }
 }
+
+/**
+ ██▄▄▄██   █▄▀ █░█ █▀▄▀█ ▄▀█
+█   ░   █  █░█ █▄█ █░▀░█ █▀█
+█   ░   █
+█░█░▀░█░█  ▀█▀ █▀█ █▀█ █▄░█   █▀▀ ▀█▀ █░█
+ ▀▀▀▀▀▀▀   ░█░ █▀▄ █▄█ █░▀█ ▄ ██▄ ░█░ █▀█
+ */
