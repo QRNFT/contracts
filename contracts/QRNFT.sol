@@ -53,6 +53,7 @@ contract QRNFT is
     }
 
     event ClaimCreated(
+        uint256 indexed claimId,
         uint256 indexed tokenId,
         address operator,
         address indexed nftContract,
@@ -60,16 +61,18 @@ contract QRNFT is
     );
 
     event Claimed(
+        uint256 indexed claimId,
         uint256 indexed tokenId,
         address indexed owner,
-        address indexed nftContract,
+        address nftContract,
         uint256
     );
 
     event ClaimRefunded(
+        uint256 indexed claimId,
         uint256 indexed tokenId,
         address indexed owner,
-        address indexed nftContract,
+        address nftContract,
         uint256 amount
     );
 
@@ -123,8 +126,8 @@ contract QRNFT is
             false,
             "ERC721"
         );
-        emit ClaimCreated(_tokenId, _from, msg.sender, 1);
-        count++;
+        emit ClaimCreated(count++, _tokenId, _from, msg.sender, 1);
+
         return this.onERC721Received.selector;
     }
 
@@ -136,17 +139,20 @@ contract QRNFT is
         bytes calldata
     ) external returns (bytes4) {
         require(hasRole(PARTNER_ROLE, _from), "QRNFT: Not a partner.");
-        drops[count] = Drop(
-            msg.sender,
-            _tokenId,
-            _amount,
-            address(0),
-            _from,
-            false,
-            "ERC1155"
-        );
-        emit ClaimCreated(_tokenId, _from, msg.sender, _amount);
-        count++;
+
+        for (uint256 i = 0; i < _amount; i++) {
+            drops[count] = Drop(
+                msg.sender,
+                _tokenId,
+                1,
+                address(0),
+                _from,
+                false,
+                "ERC1155"
+            );
+            emit ClaimCreated(count++, _tokenId, _from, msg.sender, 1);
+        }
+
         return this.onERC1155Received.selector;
     }
 
@@ -167,8 +173,8 @@ contract QRNFT is
                 false,
                 "ERC721"
             );
-            count++;
-            emit ClaimCreated(_tokenIds[i], _from, msg.sender, 1);
+
+            emit ClaimCreated(count++, _tokenIds[i], _from, msg.sender, 1);
         }
         return this.onERC721BatchReceived.selector;
     }
@@ -192,8 +198,8 @@ contract QRNFT is
                     false,
                     "ERC1155"
                 );
-                count++;
-                emit ClaimCreated(_tokenIds[i], _from, msg.sender, 1);
+
+                emit ClaimCreated(count++, _tokenIds[i], _from, msg.sender, 1);
             }
         }
         return this.onERC1155BatchReceived.selector;
@@ -256,6 +262,7 @@ contract QRNFT is
         }
 
         emit Claimed(
+            _dropId,
             drops[_dropId].tokenId,
             _msgSender(),
             drops[_dropId].tokenAddress,
@@ -288,6 +295,7 @@ contract QRNFT is
                     );
                 }
                 emit ClaimRefunded(
+                    i,
                     drops[i].tokenId,
                     msg.sender,
                     drops[i].tokenAddress,
@@ -322,6 +330,7 @@ contract QRNFT is
                     );
                 }
                 emit ClaimRefunded(
+                    i,
                     drops[i].tokenId,
                     drops[1].operator,
                     drops[i].tokenAddress,
